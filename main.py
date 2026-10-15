@@ -145,6 +145,48 @@ def make_pyramid(males, females, place_name, year):
 
 
 # ──────────────────────────────────────────────
+# 3-2. 지표 계산 (지표 카드와 한 줄 설명에 씁니다)
+# ──────────────────────────────────────────────
+
+# 고령화율이 이 값(%)을 넘으면 '주의' 표시를 붙입니다
+AGING_WARNING_RATIO = 20
+
+
+def calc_indicators(males, females):
+    """총인구, 평균연령, 0~14세 비율, 65세 이상 비율을 계산합니다."""
+    counts = males + females  # 나이별 전체 인구 (남 + 여)
+    total = int(counts.sum())
+    if total == 0:
+        return {"total": 0, "avg_age": 0.0, "youth_ratio": 0.0, "senior_ratio": 0.0}
+
+    # 나이 숫자: 0, 1, 2, ..., 100 (마지막 '100세 이상'은 100살로 계산해요)
+    ages = np.arange(len(counts))
+    avg_age = (counts * ages).sum() / total  # 평균 = (나이 × 사람 수의 합) ÷ 전체 인구
+
+    youth_ratio = counts[:15].sum() / total * 100              # 0~14세 비율 (%)
+    senior_ratio = counts[SENIOR_START:].sum() / total * 100   # 65세 이상 비율 (%)
+
+    return {
+        "total": total,
+        "avg_age": float(avg_age),
+        "youth_ratio": float(youth_ratio),
+        "senior_ratio": float(senior_ratio),
+    }
+
+
+def describe_age_balance(youth_ratio, senior_ratio):
+    """'아이가 많은지, 어르신이 많은지'를 한 줄 문장으로 만듭니다."""
+    # 0~14세 비율과 65세 이상 비율 중 더 큰 쪽이 '많은 편'이에요
+    if senior_ratio > youth_ratio:
+        answer = "어르신이 많은 편이에요"
+    elif youth_ratio > senior_ratio:
+        answer = "아이가 많은 편이에요"
+    else:
+        answer = "아이와 어르신이 비슷해요"
+    return f"이 동네는 {answer}. (0~14세 {youth_ratio:.1f}% · 65세 이상 {senior_ratio:.1f}%)"
+
+
+# ──────────────────────────────────────────────
 # 4. 화면 구성
 # ──────────────────────────────────────────────
 
@@ -184,23 +226,28 @@ row = df[
 males = row[MALE_COLS].to_numpy(dtype=np.int64)
 females = row[FEMALE_COLS].to_numpy(dtype=np.int64)
 
-# 요약 숫자 계산
-total = int(males.sum() + females.sum())
-senior = int(males[SENIOR_START:].sum() + females[SENIOR_START:].sum())
-senior_ratio = senior / total * 100 if total > 0 else 0
+# 지표 계산 (총인구, 평균연령, 고령화율)
+stats = calc_indicators(males, females)
 
 # 시군구 이름이 '(시군구 없음)'이면 제목에서 빼 줍니다
 place_name = " ".join(name for name in [sido, sigungu, dong] if name != NO_SIGUNGU)
 
-# 요약 카드 4개
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("전체 인구", f"{total:,}명")
-m2.metric("남자", f"{int(males.sum()):,}명")
-m3.metric("여자", f"{int(females.sum()):,}명")
-m4.metric(f"{SENIOR_START}세 이상 비율", f"{senior_ratio:.1f}%")
+# 지표 카드 3개를 나란히 (그래프 위)
+c1, c2, c3 = st.columns(3)
+c1.metric("총인구", f"{stats['total']:,}명")
+c2.metric("평균연령", f"{stats['avg_age']:.1f}세")
+with c3:
+    st.metric(f"고령화율 ({SENIOR_START}세 이상)", f"{stats['senior_ratio']:.1f}%")
+    # 고령화율이 기준을 넘으면 카드 옆(아래)에 주의 표시
+    if stats["senior_ratio"] > AGING_WARNING_RATIO:
+        st.badge(f"주의: 고령화율 {AGING_WARNING_RATIO}% 초과", color="orange")
 
 # 인구 피라미드 그리기
 fig = make_pyramid(males, females, place_name, latest_year)
 st.plotly_chart(fig, width="stretch")
+
+# 피라미드 아래: 아이가 많은지 어르신이 많은지 한 줄 설명 (자동 생성)
+st.markdown("**이 동네는 아이가 많은 편인가요, 어르신이 많은 편인가요?**")
+st.info(describe_age_balance(stats["youth_ratio"], stats["senior_ratio"]))
 
 st.caption("세로축: 맨 아래가 0세, 위로 갈수록 나이가 많고 맨 위가 100세 이상이에요.")
